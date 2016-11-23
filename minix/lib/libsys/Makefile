@@ -103,7 +103,8 @@ SRCS+=  \
 	vm_procctl.c \
 	vm_query_exit.c \
 	vm_set_priv.c \
-	vm_update.c
+	vm_update.c \
+	sys_sem.c
 
 .if ${MKPCI} != "no"
 SRCS+=	pci_attr_r16.c \

@@ -213,5 +213,8 @@ int do_padconf(struct proc * caller, message *m_ptr);
 #define do_padconf NULL
 #endif
 
+int do_ksemdown(struct proc *caller, message *m_ptr);
+int do_ksemup(struct proc *caller, message *m_ptr);
+
 #endif	/* SYSTEM_H */
 

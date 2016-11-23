@@ -846,6 +846,8 @@ struct
 	{ "VMCTL",		SYS_VMCTL },
 	{ "MEMSET",		SYS_MEMSET },
 	{ "PADCONF",		SYS_PADCONF },
+	{ "KSEMDOWN",		SYS_KSEMDOWN },
+	{ "KSEMUP",		SYS_KSEMUP },
 	{ NULL,		0 }
 };
 

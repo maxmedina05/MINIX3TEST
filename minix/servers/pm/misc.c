@@ -426,3 +426,301 @@ int do_getrusage()
 	return sys_datacopy(SELF, (vir_bytes)&r_usage, who_e,
 		m_in.m_lc_pm_rusage.addr, (vir_bytes) sizeof(r_usage));
 }
+
+/* 	do_printdate 	*/
+
+#define LEPOCH_YEAR 1970
+#define LLEAPYEAR(lyear) (!((lyear) % 4) && (((lyear) % 100) || !((lyear) % 400)))
+#define LYEARSIZE(lyear) (LLEAPYEAR(lyear) ? 366 : 365)
+
+const int lmonnumtable[2][12] = { {31, 28, 31, 30, 31, 30, 31, 31, 30, 
+31, 30, 31}, {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31} };
+
+const char lweektable[7][10] = { "THURSDAY", "FRIDAY", "SATURDAY", 
+"SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY" };
+
+const char lmonthtable[12][10] = { "JANUARY", "FEBRUARY", "MARCH", 
+"APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", 
+"NOVEMBER", "DECEMBER" };
+
+int do_printdate()
+{
+	time_t curTime, boottime;
+	int r, monthnum;
+	clock_t uptime, realtime;
+	uint32_t system_hz;
+	long leftsecs, leftmins, lefthours, leftdays, leftyears, 
+weeknum;
+
+	printf("Hello From do_printdate\n");
+
+	if((r = getuptime(&uptime, &realtime, &boottime)) != OK)
+		panic("in do_printdate getuptime failed: %d\n", r);
+
+	system_hz = sys_hz();
+	curTime = boottime + realtime / system_hz;
+	printf("%ld seconds after 1970\n", (long)curTime);
+
+	leftsecs = curTime % 60;
+	leftmins = curTime / 60;
+	lefthours = leftmins / 60;
+	leftmins = leftmins % 60;
+	leftdays = lefthours / 24;
+	lefthours = lefthours % 24;
+
+	weeknum = leftdays % 7;	
+
+	leftyears = LEPOCH_YEAR;
+	
+	while (leftdays >= LYEARSIZE(leftyears)) 
+	{
+		leftdays -= LYEARSIZE(leftyears);
+		leftyears++;
+	}
+
+	monthnum = 0;
+
+	while (leftdays >= lmonnumtable[LLEAPYEAR(leftyears)][monthnum])
+	{
+		leftdays -= 
+lmonnumtable[LLEAPYEAR(leftyears)][monthnum];
+		monthnum++;
+	}
+	leftdays++;
+
+	printf("%s %s %ld, %ld  %ld : %ld : %ld UTC \n", 
+lweektable[weeknum], lmonthtable[monthnum], leftdays, leftyears, 
+lefthours, leftmins, leftsecs);
+
+	return OK;
+}
+
+/* 	do_printproc 	*/
+
+int do_printproc()
+{
+	pid_t searchPID = (pid_t)m_in.m_u32.data[0];
+	register struct mproc *rmp;	
+
+	printf("Hello From do_printproc \n");
+	printf("Information For Proc ID#%d (IF ACTIVE) \n", searchPID);		
+
+	for (rmp = &mproc[0]; rmp < &mproc[NR_PROCS]; rmp++)
+		if((rmp->mp_flags & IN_USE) && rmp->mp_pid == searchPID)
+		{
+			printf(" -- Kernel Endpoint ID: %d \n",
+rmp->mp_endpoint);
+			printf(" -- Exit Status Storage: %c \n", 
+rmp->mp_exitstatus);
+			printf(" -- Signal # for Killed Procs: %c \n", 
+rmp->mp_sigstatus);
+			printf(" -- Process Group ID: %d \n", 
+rmp->mp_procgrp);
+			printf(" -- PID This Process is Waiting For: %d \n", rmp->mp_wpid);
+			printf(" -- Parent Process Index: %d \n", 
+rmp->mp_parent);
+			printf(" -- Tracer Process Index: %d \n", 
+rmp->mp_tracer);
+			return (OK);
+		}
+	
+	printf("ACTIVE PROCESS ID#%d NOT FOUND \n", searchPID);
+
+	return -1;
+}
+
+int do_semdown()
+{
+	int sem_id = (int) m_in.m_u32.data[0];
+	register struct mproc *rmp = mp;
+
+	if(sem_id >= 31 || sem_id < 0)
+	{
+		printf("\nERROR: SEM_ID OUT OF RANGE\n");
+		return -1;
+	}
+
+	if(rmp->mp_endpoint == 0)
+	{
+		printf("\nLAZY ERROR: ENDPOINT IS 0\n");
+		return -1;
+	}
+
+	if(msemaphores[sem_id].created == 0)
+	{
+		printf("\nERROR: SEM NOT CREATED\n");
+		return -1;
+	}
+
+	if(msemaphores[sem_id].value == 0)
+	{
+		if(msemaphores[sem_id].owner_e == NULL && msemaphores[sem_id].phead == NULL && msemaphores[sem_id].mtail == NULL)
+		{
+			msemaphores[sem_id].value--;
+			msemaphores[sem_id].owner_e = rmp;
+		}
+		else
+		{
+			printf("\nERROR:OWNER HEAD OR TAIL NOT NULL\n");
+			return -1;
+		}
+	}
+	else if(msemaphores[sem_id].value == -1)
+	{
+		if(msemaphores[sem_id].owner_e != NULL && msemaphores[sem_id].owner_e != rmp)
+		{
+			if(rmp->sem_next != NULL)
+			{
+				printf("\nWARNING: SEM_NEXT IS NOT NULL\n");
+			}
+
+			if(msemaphores[sem_id].phead == NULL && msemaphores[sem_id].mtail == NULL)
+			{
+				msemaphores[sem_id].phead = rmp;
+				msemaphores[sem_id].mtail = rmp;
+			}
+			else if(msemaphores[sem_id].phead != NULL && msemaphores[sem_id].mtail != NULL)
+			{
+				msemaphores[sem_id].mtail->sem_next = rmp;
+				msemaphores[sem_id].mtail = rmp;
+			}
+			else 
+			{
+				printf("\nERROR: HEAD AND TAIL NOT SYNCHRNIZED\n");
+				return -1;
+			}
+
+			if(sys_kill(rmp->mp_endpoint, SIGSTOP) != OK) 
+			{
+				printf("\nERROR:BLOCK PROCESS FAILED\n");
+				return -1;
+			}
+
+		}
+		else
+		{
+			printf("\nERROR: OWNER SHOULD BE EMPTY OR IS SAME AS CALLER\n");
+			printf("\nVALUE: %d, OWNER %p, HEAD: %p, TAIL: %p\n", msemaphores[sem_id].value, msemaphores[sem_id].owner_e, msemaphores[sem_id].phead, msemaphores[sem_id].mtail);
+			return -1;
+		}
+	}
+	else
+	{
+		printf("\nERROR: SEM VALUE IS NOT 1 or 0\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+int do_semup()
+{
+	int sem_id = (int) m_in.m_u32.data[0];
+	register struct mproc *rmp = mp;
+	register struct mproc *temp;
+
+	if(sem_id >= 31 || sem_id < 0)
+	{
+		printf("\nERROR: SEM ID OUT OF RANGE\n");
+		return -1;
+	}
+
+	if(rmp->mp_endpoint == 0)
+	{
+		printf("\nLAZY ERROR: ENDPOINT IS 0\n");
+		return -1;
+	}
+	
+	if(msemaphores[sem_id].created == 0)
+	{
+		printf("\nERROR: SEM NOT CREATED \n");
+		return -1;
+	}
+
+	if(msemaphores[sem_id].owner_e == NULL || msemaphores[sem_id].owner_e != rmp)
+	{
+		printf("\nERROR:OWNER IS EITHER NULL OR DIFFERENT\n");
+		return -1;
+	}
+
+	if(msemaphores[sem_id].value == -1)
+	{
+		if(msemaphores[sem_id].phead == NULL && msemaphores[sem_id].mtail == NULL)
+		{
+			msemaphores[sem_id].value++;
+			msemaphores[sem_id].owner_e = NULL;
+		}
+		else if(msemaphores[sem_id].phead != NULL && msemaphores[sem_id].mtail != NULL)
+		{
+			temp = msemaphores[sem_id].phead;
+			msemaphores[sem_id].phead = temp->sem_next;
+			msemaphores[sem_id].owner_e = temp;
+			if(msemaphores[sem_id].phead == NULL)
+			{
+				msemaphores[sem_id].mtail = NULL;
+			}
+			temp->sem_next = NULL;
+			if(sys_kill(temp->mp_endpoint, SIGCONT) != OK)
+			{
+				printf("\nERROR: UNBLOCK FAILED\n");
+				return -1;
+			}
+		}
+		else
+		{
+			printf("\nERROR:SEM_UP INCONSISTENT HEAD AND TAIL\n");
+			return -1;
+		}
+	}
+	else
+	{
+		printf("\nERROR: SEM VALUE SHOULD BE SET 0\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int do_semcreate()
+{
+	int sem_id = m_in.m_u32.data[0];
+	register struct mproc *rmp = mp;
+
+	if(msemaphores[sem_id].created == 0 && msemaphores[sem_id].owner_e == rmp)
+	{
+		msemaphores[sem_id].created = 1;
+	}
+	else
+	{
+		return -1;
+	}	
+
+	return 0;	
+}
+
+int do_semdel()
+{
+	int sem_id = m_in.m_u32.data[0];
+	register struct mproc *rmp = mp;
+
+	if(msemaphores[sem_id].owner_e == rmp && msemaphores[sem_id].created == 1)
+	{
+		if(msemaphores[sem_id].phead == NULL && msemaphores[sem_id].mtail == NULL)
+		{
+			msemaphores[sem_id].created = 0;
+			msemaphores[sem_id].value = 0;
+		}
+		else
+		{
+			return -1;
+		}
+	}
+	else
+	{
+		return -1;
+	}
+
+	return 0;
+}
+

@@ -162,6 +162,8 @@ struct proc {
 				   queue again */
 #define RTS_BOOTINHIBIT	0x10000	/* not ready until VM has made it */
 
+#define RTS_SEMWAIT	0x20000 /* Waiting for Semaphore */
+
 /* A process is runnable iff p_rts_flags == 0. */
 #define rts_f_is_runnable(flg)	((flg) == 0)
 #define proc_is_runnable(p)	(rts_f_is_runnable((p)->p_rts_flags))
